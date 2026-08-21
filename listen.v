@@ -286,20 +286,29 @@ fn (mut n Negotiation) negotiate() !&Conn {
 	// been up for longer than a token lives.
 	identity := l.identity.reissue()!
 	sdp_text := inject_identity(answer.sdp, identity.sign(answer.sdp)!)
-	pc.set_local_description(webrtc.SessionDescription{
-		typ: .answer
-		sdp: sdp_text
-	})!
 
 	ufrag := media_attribute(sdp_text, 'ice-ufrag') or {
 		return error('nethernet: the local answer carries no ICE credentials')
 	}
 
-	mut answered := sdp_text
 	disable_trickle := l.config.disable_trickle_ice || l.signaling.disable_trickle_ice()
+
+	// disable_trickle: the peer hasn't received this description yet, so
+	// bring-up must not start until it has - see
+	// webrtc.PeerConnection.set_local_description_deferred's own doc comment.
+	mut answered := sdp_text
 	if disable_trickle {
+		pc.set_local_description_deferred(webrtc.SessionDescription{
+			typ: .answer
+			sdp: sdp_text
+		})!
 		answered = embed_candidates(sdp_text, conn.gather_candidates(ufrag,
 			l.config.negotiation_timeout)!)
+	} else {
+		pc.set_local_description(webrtc.SessionDescription{
+			typ: .answer
+			sdp: sdp_text
+		})!
 	}
 
 	mut signaling := l.signaling
@@ -309,6 +318,10 @@ fn (mut n Negotiation) negotiate() !&Conn {
 		data:          answered
 		network_id:    conn.network_id
 	})!
+
+	if disable_trickle {
+		pc.begin_connecting()
+	}
 
 	if !disable_trickle {
 		mut trickler := &CandidateTrickler{
