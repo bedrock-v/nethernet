@@ -1,0 +1,203 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly, so that a break caused by a new V release - or by a change in
+  # webrtc-v, which is tracked from its default branch - is found before someone
+  # else finds it.
+  schedule:
+    - cron: '0 6 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VFLAGS: -no-parallel
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vlang/setup-v@v1.7
+        with:
+          check-latest: true
+      - name: Install webrtc-v
+        run: v install --git https://github.com/bedrock-v/webrtc-v
+      - name: Link the module into V's module path
+        run: ln -s "$PWD" "$HOME/.vmodules/nethernet"
+      - name: Verify formatting
+        run: v fmt -verify .
+
+  vet:
+    name: Vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vlang/setup-v@v1.7
+        with:
+          check-latest: true
+      - name: Install webrtc-v
+        run: v install --git https://github.com/bedrock-v/webrtc-v
+      - name: Link the module into V's module path
+        run: ln -s "$PWD" "$HOME/.vmodules/nethernet"
+      - name: Vet
+        run: v vet .
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vlang/setup-v@v1.7
+        with:
+          check-latest: true
+      - name: Install webrtc-v
+        run: v install --git https://github.com/bedrock-v/webrtc-v
+      - name: Link the module into V's module path
+        run: ln -s "$PWD" "$HOME/.vmodules/nethernet"
+      - name: Run the test suite
+        run: v test .
+      # The suite drives two endpoints through discovery, an offer and answer,
+      # and the transports coming up. Running it a second time catches the
+      # ordering bugs that only show up under a different schedule - which is
+      # exactly how the two negotiation races this module has had were found.
+      - name: Run the test suite again
+        run: v test .
+
+  build:
+    name: Build (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Production builds turn on optimisation and a different code path in
+        # V's dead-code elimination.
+        mode: [debug, prod]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vlang/setup-v@v1.7
+        with:
+          check-latest: true
+      - name: Install webrtc-v
+        run: v install --git https://github.com/bedrock-v/webrtc-v
+      - name: Link the module into V's module path
+        run: ln -s "$PWD" "$HOME/.vmodules/nethernet"
+      - name: Build both modules as shared libraries
+        run: |
+          set -euo pipefail
+          for module in . discovery; do
+            echo "::group::$module"
+            if [ "${{ matrix.mode }}" = "prod" ]; then
+              v -prod -shared -check "$module"
+            else
+              v -shared -check "$module"
+            fi
+            echo "::endgroup::"
+          done
+
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vlang/setup-v@v1.7
+        with:
+          check-latest: true
+      - name: Install webrtc-v
+        run: v install --git https://github.com/bedrock-v/webrtc-v
+      - name: Link the module into V's module path
+        run: ln -s "$PWD" "$HOME/.vmodules/nethernet"
+      - name: Build every example
+        run: |
+          set -euo pipefail
+          for example in examples/*/; do
+            name="$(basename "$example")"
+            echo "::group::$name"
+            v -o "/tmp/$name" "$example"
+            echo "::endgroup::"
+          done
+      # The examples are two processes that find each other over the local
+      # network, so running them proves the parts the in-process test cannot:
+      # that a real broadcast is answered and that the negotiation works across
+      # a process boundary.
+      - name: Connect the client to the server
+        run: |
+          set -euo pipefail
+          export NETHERNET_INTERFACE=lo
+          # Not the default port: nothing should be holding 7551 on a runner, but
+          # a job that fails because something is tells you nothing useful.
+          /tmp/lan_server :27551 > /tmp/server.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          sleep 2
+          timeout 60 /tmp/lan_client 127.0.0.1:27551 | tee /tmp/client.log
+          grep -q 'server replied: hello from V' /tmp/client.log
+      - name: Server log
+        if: always()
+        run: cat /tmp/server.log || true
+
+  hardening:
+    name: Hardening
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vlang/setup-v@v1.7
+        with:
+          check-latest: true
+      - name: Install webrtc-v
+        run: v install --git https://github.com/bedrock-v/webrtc-v
+      - name: Link the module into V's module path
+        run: ln -s "$PWD" "$HOME/.vmodules/nethernet"
+      # The decoders take input from parties that have not been authenticated
+      # yet. Running their tests under stricter C warnings, without the garbage
+      # collector, and with optimisation on exercises three different code paths
+      # through V's backend; a bug that appears in only one of them is exactly
+      # the kind that reaches production.
+      - name: Strict C warnings
+        run: v -cstrict test .
+      - name: Without the garbage collector
+        run: v -gc none test .
+      - name: Optimised
+        run: v -prod test .
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # gitleaks-action asks organisation-owned repositories for a paid licence.
+      # The scanner is free, so the release binary is used directly.
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          version=8.28.0
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
+          tar -C /tmp -xzf /tmp/gitleaks.tar.gz gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Scan for committed credentials
+        run: gitleaks detect --source . --redact --no-banner --exit-code 1
+
+  actions:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint the workflows
+        uses: raven-actions/actionlint@v2

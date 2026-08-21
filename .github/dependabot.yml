@@ -1,0 +1,19 @@
+version: 2
+
+updates:
+  # The workflows pin action versions, and a pinned version stops receiving
+  # fixes the moment it is written down. V modules are installed from git at CI
+  # time, so there is nothing else here to keep current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: tuesday
+    commit-message:
+      prefix: ci
+    labels:
+      - dependencies
+    groups:
+      actions:
+        patterns:
+          - '*'
