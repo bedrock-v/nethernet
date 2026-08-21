@@ -1,6 +1,7 @@
 module nethernet
 
 import crypto.ecdsa
+import time
 
 const sample_sdp = 'v=0\r\n' + 'o=- 1 2 IN IP4 127.0.0.1\r\n' + 's=-\r\n' + 't=0 0\r\n' +
 	'a=group:BUNDLE 0\r\n' + 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n' +
@@ -119,6 +120,31 @@ fn test_self_signed_token_must_be_signed_by_the_key_it_claims() {
 	if _ := claim_public_key(segments.join('.'), true) {
 		assert false, 'a token with a broken signature was accepted'
 	}
+}
+
+fn test_reissued_token_keeps_the_key_and_is_still_valid() {
+	private_key := ecdsa.PrivateKey.new(nid: .secp384r1)!
+	identity := generate_server_identity(private_key, 'self')!
+	reissued := identity.reissue()!
+
+	assert reissued.domain == identity.domain
+	// The key is what a client remembers the server by, so reissuing must not
+	// change it - only the token's lifetime moves.
+	public_key := claim_public_key(reissued.token, true)!
+	assert public_key.equal(claim_public_key(identity.token, true)!)
+	assert token_expiry(reissued.token)! > time.now().unix()
+
+	signed := inject_identity(sample_sdp, reissued.sign(sample_sdp)!)
+	data := extract_identity(signed) or {
+		assert false, 'the reissued identity could not be read back'
+		return
+	}
+	data.verify(signed, public_key)!
+}
+
+fn token_expiry(token string) !i64 {
+	claims := parse_token_claims(base64url_decode(token.split('.')[1])!)!
+	return claims.expires_at
 }
 
 fn test_public_key_encoding_round_trip() {

@@ -90,6 +90,15 @@ pub fn generate_server_identity(private_key ecdsa.PrivateKey, domain string) !Id
 	}
 }
 
+// reissue mints a fresh token for the same key and domain.
+//
+// A token lives for a minute, so a listener that signed one at startup and kept
+// presenting it would stop being verifiable long before it stops accepting
+// connections.
+fn (i &Identity) reissue() !Identity {
+	return generate_server_identity(i.private_key, i.domain)!
+}
+
 // sign builds the identity assertion for a local description.
 //
 // The signature covers the fingerprints exactly as they appear in the SDP being

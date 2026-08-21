@@ -54,8 +54,9 @@ mut:
 	log          logging.Logger
 	subscription int
 
-	// identity is the server identity presented in answers. It is issued once
-	// and reused, so a client that remembers the key sees the same server.
+	// identity holds the key the server answers under. The key is kept for the
+	// listener's lifetime, so a client that remembers it sees the same server,
+	// while the token itself is reissued for every connection.
 	identity Identity
 
 	offers   chan Signal
@@ -280,7 +281,11 @@ fn (mut n Negotiation) negotiate() !&Conn {
 	}
 
 	answer := pc.create_answer()!
-	sdp_text := inject_identity(answer.sdp, l.identity.sign(answer.sdp)!)
+	// The key is the listener's, but the token is minted here: one signed at
+	// startup would have expired by the time a player joins a server that has
+	// been up for longer than a token lives.
+	identity := l.identity.reissue()!
+	sdp_text := inject_identity(answer.sdp, identity.sign(answer.sdp)!)
 	pc.set_local_description(webrtc.SessionDescription{
 		typ: .answer
 		sdp: sdp_text
