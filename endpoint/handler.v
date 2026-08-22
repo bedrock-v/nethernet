@@ -241,16 +241,21 @@ pub fn (mut h Handler) close() {
 
 // handle routes one request. It is the http.Handler side of the endpoint.
 pub fn (mut h Handler) handle(req http.Request) http.Response {
+	path := request_path(req.url)
+	// Whether a client ever reaches the endpoint is otherwise invisible: it
+	// tries HTTPS first and falls back on its own, so a join that never
+	// arrives looks exactly like one that was never attempted.
+	h.log.debug('${req.method} ${path}')
 	if h.is_closed() {
 		return text_response(.service_unavailable, 'Service unavailable')
 	}
-	path := request_path(req.url)
 	if req.method == .get && path == '/v1/join' {
 		return h.handle_ping()
 	}
 	if req.method == .post && path.starts_with('/v1/join/') {
 		return h.handle_offer(path['/v1/join/'.len..], req.data)
 	}
+	h.log.debug('nothing is served at ${req.method} ${path}')
 	return text_response(.not_found, 'Not found')
 }
 
@@ -261,14 +266,13 @@ fn (mut h Handler) handle_ping() http.Response {
 	status := h.status
 	h.status_mu.runlock()
 
-	current := status or { return text_response(.ok, '') }
-	mut header := http.new_header()
-	header.add(.content_type, 'application/json')
-	return http.new_response(
-		status: .ok
-		body:   current.encode()
-		header: header
-	)
+	current := status or {
+		h.log.debug('answering a ping with no status: none has been set')
+		return text_response(.ok, '')
+	}
+	body := current.encode()
+	h.log.debug('answering a ping with ${body}')
+	return response(.ok, 'application/json', body)
 }
 
 // handle_offer runs one negotiation: the offer goes to the listener, and
@@ -284,24 +288,21 @@ fn (mut h Handler) handle_offer(network_id string, offer string) http.Response {
 		return text_response(.request_entity_too_large, 'SDP offer is too large')
 	}
 
+	h.log.debug('an offer of ${offer.len} bytes arrived for network ${network_id}')
 	sig := h.negotiate(network_id, offer) or {
 		h.log.error('negotiating a connection with network ${network_id}: ${err.msg()}')
 		return text_response(.service_unavailable, 'Service unavailable')
 	}
 	if sig.typ == nethernet.signal_type_error {
+		h.log.error('negotiating a connection with network ${network_id}: the listener reported error ${sig.data}')
 		return text_response(.internal_server_error, sig.data)
 	}
 	if sig.typ != nethernet.signal_type_answer {
 		h.log.error('negotiating a connection with network ${network_id}: answered with ${sig.typ}')
 		return text_response(.internal_server_error, 'An error has occurred while handling this request')
 	}
-	mut header := http.new_header()
-	header.add(.content_type, 'application/sdp')
-	return http.new_response(
-		status: .ok
-		body:   sig.data
-		header: header
-	)
+	h.log.debug('answering network ${network_id} with ${sig.data.len} bytes of SDP')
+	return response(.ok, 'application/sdp', sig.data)
 }
 
 // negotiate hands the offer to the listener and waits for the answer it
@@ -368,8 +369,16 @@ fn request_path(url string) string {
 }
 
 fn text_response(status http.Status, body string) http.Response {
+	return response(status, 'text/plain', body)
+}
+
+// response builds one answer. The connection is closed after it: a client only
+// ever sends one request per connection here, and the game's own endpoint does
+// not keep it open either.
+fn response(status http.Status, content_type string, body string) http.Response {
 	mut header := http.new_header()
-	header.add(.content_type, 'text/plain')
+	header.add(.content_type, content_type)
+	header.add(.connection, 'close')
 	return http.new_response(
 		status: status
 		body:   body
