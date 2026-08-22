@@ -97,6 +97,9 @@ pub fn listen(config HandlerConfig) !&EndpointHandler {
 		handler:  h
 		cert:     config.cert
 		cert_key: config.cert_key
+		// The caller has a logger of its own; the server's own banner would
+		// reach stdout without going through it.
+		show_startup_message: false
 	}
 	h.server = server
 
