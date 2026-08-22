@@ -1,14 +1,13 @@
 module endpoint
 
 import net.http
-import time
 import nethernet
 
 // AnsweringNotifier stands in for a Listener: it answers every offer it is
 // given, from another thread, the way a real negotiation does.
 struct AnsweringNotifier {
 mut:
-	handler &Handler
+	handler &EndpointHandler
 	answer  string
 }
 
@@ -23,29 +22,18 @@ fn (mut n AnsweringNotifier) notify_signal(sig nethernet.Signal) bool {
 		network_id:    sig.network_id
 	}
 	mut handler := n.handler
-	spawn fn (mut h Handler, sig nethernet.Signal) {
+	spawn fn (mut h EndpointHandler, sig nethernet.Signal) {
 		h.signal(sig) or {}
 	}(mut handler, answer)
 	return true
 }
 
-fn wait_for_addr(h &Handler) string {
-	for _ in 0 .. 100 {
-		addr := h.addr()
-		if addr != '' && !addr.ends_with(':0') {
-			return addr
-		}
-		time.sleep(20 * time.millisecond)
-	}
-	panic('the endpoint never bound')
-}
-
 fn test_ping_answers_with_the_status() {
-	mut h := listen('127.0.0.1:0', network_id: 42)!
+	mut h := listen(address: '127.0.0.1:0')!
 	defer {
 		h.close()
 	}
-	addr := wait_for_addr(h)
+	addr := h.server.addr
 
 	empty := http.get('http://${addr}/v1/join')!
 	assert empty.status() == .ok
@@ -63,51 +51,48 @@ fn test_ping_answers_with_the_status() {
 }
 
 fn test_offer_is_answered_with_the_listeners_answer() {
-	mut h := listen('127.0.0.1:0', network_id: 42)!
+	mut h := listen(address: '127.0.0.1:0')!
 	defer {
 		h.close()
 	}
-	addr := wait_for_addr(h)
 	mut notifier := &AnsweringNotifier{
 		handler: h
 		answer:  'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n'
 	}
 	h.notify(notifier)
 
-	answered := http.post('http://${addr}/v1/join/123', 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n')!
-	assert answered.status() == .ok
+	answered := http.post('http://${h.server.addr}/v1/join/123', 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n')!
+	assert answered.status() == .ok, 'answered ${answered.status_code}: ${answered.body}'
 	assert answered.body == notifier.answer
 }
 
 fn test_offer_without_a_listener_is_refused() {
-	mut h := listen('127.0.0.1:0', network_id: 42)!
+	mut h := listen(address: '127.0.0.1:0')!
 	defer {
 		h.close()
 	}
-	addr := wait_for_addr(h)
 
-	refused := http.post('http://${addr}/v1/join/123', 'v=0\r\n')!
-	assert refused.status() == .service_unavailable
+	refused := http.post('http://${h.server.addr}/v1/join/123', 'v=0\r\n')!
+	assert refused.status() == .internal_server_error
 }
 
-fn test_an_empty_offer_is_rejected() {
-	mut h := listen('127.0.0.1:0', network_id: 42)!
+fn test_a_malformed_offer_is_rejected() {
+	mut h := listen(address: '127.0.0.1:0')!
 	defer {
 		h.close()
 	}
-	addr := wait_for_addr(h)
 
-	rejected := http.post('http://${addr}/v1/join/123', '')!
-	assert rejected.status() == .bad_request
+	empty := http.post('http://${h.server.addr}/v1/join/123', '')!
+	assert empty.status() == .bad_request
 
-	unnumbered := http.post('http://${addr}/v1/join/world', 'v=0\r\n')!
+	unnumbered := http.post('http://${h.server.addr}/v1/join/world', 'v=0\r\n')!
 	assert unnumbered.status() == .bad_request
 }
 
 // A candidate has nowhere to go once the answer has been written, so the
 // listener has to be told rather than left waiting.
 fn test_a_candidate_cannot_be_signalled() {
-	mut h := listen('127.0.0.1:0', network_id: 42)!
+	mut h := listen(address: '127.0.0.1:0')!
 	defer {
 		h.close()
 	}
