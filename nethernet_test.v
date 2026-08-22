@@ -1,6 +1,7 @@
 module nethernet
 
 import crypto.ecdsa
+import encoding.base64
 import time
 
 const sample_sdp = 'v=0\r\n' + 'o=- 1 2 IN IP4 127.0.0.1\r\n' + 's=-\r\n' + 't=0 0\r\n' +
@@ -200,4 +201,51 @@ fn test_data_channel_parameters_match_the_game() {
 	assert MessageReliability.unreliable.label() == 'UnreliableDataChannel'
 	assert MessageReliability.reliable.options().ordered
 	assert MessageReliability.unreliable.options().max_retransmits? == 0
+}
+
+// A peer that writes the attribute into its media section still means it. The
+// game's own client does, and a description carries no second `a=identity` to
+// confuse it with.
+fn test_identity_assertion_is_read_below_the_media_section() {
+	private_key := ecdsa.PrivateKey.new(nid: .secp384r1)!
+	identity := generate_server_identity(private_key, 'self')!
+	signed := inject_identity(sample_sdp, identity.sign(sample_sdp)!)
+
+	mut attribute := ''
+	mut without := []string{}
+	for line in signed.split_into_lines() {
+		if line.starts_with('a=identity:') {
+			attribute = line
+			continue
+		}
+		if line != '' {
+			without << line
+		}
+	}
+	assert attribute != ''
+	below := without.join('\r\n') + '\r\n' + attribute + '\r\n'
+
+	data := extract_identity(below) or {
+		assert false, 'an identity below the media section was not read'
+		return
+	}
+	assert data.domain == 'self'
+	assert data.valid()
+}
+
+// The assertion travels as a JSON object inside a JSON string. An
+// implementation that nests it directly is read the same way.
+fn test_identity_assertion_accepts_a_nested_assertion() {
+	private_key := ecdsa.PrivateKey.new(nid: .secp384r1)!
+	identity := generate_server_identity(private_key, 'self')!
+	data := identity.sign(sample_sdp)!
+
+	nested := base64.encode('{"assertion":{"fingerprints":${json_string(data.fingerprints)},"token":${json_string(data.token)}},"idp":{"domain":"self","protocol":"default"}}'.bytes())
+	read := extract_identity('${sample_sdp}a=identity:${nested}\r\n') or {
+		assert false, 'a nested assertion was not read'
+		return
+	}
+	assert read.token == data.token
+	assert read.fingerprints == data.fingerprints
+	assert read.valid()
 }

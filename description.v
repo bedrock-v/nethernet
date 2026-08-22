@@ -44,17 +44,18 @@ fn inject_identity(sdp_text string, data IdentityData) string {
 // It returns none when the peer sent none, which is what an offline or custom
 // implementation does.
 fn extract_identity(sdp_text string) ?IdentityData {
-	encoded := session_attribute(sdp_text, 'identity')?
+	// The attribute belongs at session level and is written there, but it is
+	// read from anywhere in the description: a peer that places it after its
+	// first media section still means it, and no other attribute of this name
+	// exists to confuse it with.
+	encoded := media_attribute(sdp_text, 'identity')?
 	decoded := base64.decode(encoded)
 	if decoded.len == 0 {
 		return none
 	}
 	outer := json2.decode[json2.Any](decoded.bytestr()) or { return none }.as_map()
 
-	// The assertion is a JSON object encoded as a JSON string, so it is decoded
-	// twice.
-	assertion_text := outer['assertion'] or { return none }.str()
-	assertion := json2.decode[json2.Any](assertion_text) or { return none }.as_map()
+	assertion := decode_assertion(outer['assertion'] or { return none })?
 	idp := outer['idp'] or { return none }.as_map()
 
 	data := IdentityData{
@@ -67,6 +68,16 @@ fn extract_identity(sdp_text string) ?IdentityData {
 		return none
 	}
 	return data
+}
+
+// decode_assertion reads the inner assertion. The game encodes it as a JSON
+// object inside a JSON string, so it is decoded twice; an implementation that
+// nests it as an object instead is read as it stands.
+fn decode_assertion(value json2.Any) ?map[string]json2.Any {
+	if value is map[string]json2.Any {
+		return value
+	}
+	return json2.decode[json2.Any](value.str()) or { return none }.as_map()
 }
 
 // session_attribute returns the value of a session-level attribute: one that
