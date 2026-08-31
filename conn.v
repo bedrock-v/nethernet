@@ -3,7 +3,7 @@ module nethernet
 import crypto.ecdsa
 import sync
 import time
-import webrtc
+import bedrock_v.webrtc
 
 // MessageReliability selects which of a connection's two data channels a
 // message travels on.

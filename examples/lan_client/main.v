@@ -6,8 +6,8 @@ import nethernet
 import nethernet.discovery
 import os
 import time
-import webrtc.ice
-import webrtc.logging
+import bedrock_v.webrtc.ice
+import bedrock_v.webrtc.logging
 
 fn main() {
 	log := logging.default('example', .info)

@@ -3,9 +3,9 @@ module nethernet
 import crypto.ecdsa
 import rand
 import time
-import webrtc
-import webrtc.ice
-import webrtc.logging
+import bedrock_v.webrtc
+import bedrock_v.webrtc.ice
+import bedrock_v.webrtc.logging
 
 // DialConfig configures one dial. The zero value connects anonymously to a peer
 // that allows it, which is what a LAN game does.

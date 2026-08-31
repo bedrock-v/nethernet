@@ -12,7 +12,7 @@ import rand
 import sync
 import time
 import nethernet
-import webrtc.logging
+import bedrock_v.webrtc.logging
 
 const max_sdp_body_size = 1 << 20
 

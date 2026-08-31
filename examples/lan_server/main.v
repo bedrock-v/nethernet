@@ -8,8 +8,8 @@ import nethernet
 import nethernet.discovery
 import os
 import time
-import webrtc.ice
-import webrtc.logging
+import bedrock_v.webrtc.ice
+import bedrock_v.webrtc.logging
 
 const network_id = u64(1122334455)
 
