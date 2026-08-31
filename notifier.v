@@ -2,7 +2,7 @@ module nethernet
 
 import sync
 import time
-import webrtc.logging
+import bedrock_v.webrtc.logging
 
 // signal_queue_size bounds how many signals may be waiting to be handled.
 // Candidates arrive in bursts while ICE gathers, and dropping one costs a

@@ -3,9 +3,9 @@ module nethernet
 import crypto.ecdsa
 import sync
 import time
-import webrtc
-import webrtc.ice
-import webrtc.logging
+import bedrock_v.webrtc
+import bedrock_v.webrtc.ice
+import bedrock_v.webrtc.logging
 
 // ListenConfig configures a Listener.
 //

@@ -5,7 +5,7 @@ import rand
 import sync
 import time
 import nethernet
-import webrtc.logging
+import bedrock_v.webrtc.logging
 
 // ClientConfig configures an EndpointClient.
 @[params]

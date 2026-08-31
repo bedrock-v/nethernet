@@ -3,8 +3,8 @@ module discovery
 import nethernet
 import time
 import os
-import webrtc.ice
-import webrtc.logging
+import bedrock_v.webrtc.ice
+import bedrock_v.webrtc.logging
 
 // The whole stack, both ends in one process: LAN discovery finds the server,
 // the same socket carries the offer and the answer, and the peer connection

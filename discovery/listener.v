@@ -5,7 +5,7 @@ import net
 import rand
 import sync
 import time
-import webrtc.logging
+import bedrock_v.webrtc.logging
 
 // default_port is the port Minecraft uses for LAN discovery. A server has to
 // listen on it to be found; a client may use any port, and should when the game

@@ -1,6 +1,6 @@
 module nethernet
 
-import webrtc
+import bedrock_v.webrtc
 
 // Credentials are the ICE servers a signalling service hands out for gathering
 // local candidates. They expire, which is why they are fetched per connection
