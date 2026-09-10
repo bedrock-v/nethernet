@@ -368,15 +368,18 @@ fn (mut n Negotiation) adopt_channels(mut conn Conn, deadline time.Time) ! {
 		}
 		mut channel := conn.pc.accept_data_channel(remaining)!
 		observer := n.listener.config.observe_channel
+		observed_id, observed_network := conn.id, conn.network_id
 
 		if MessageReliability.reliable.matches(mut channel) {
-			observe_channel(observer, mut channel, false, MessageReliability.reliable)
+			observe_channel(observer, observed_id, observed_network, mut channel, false,
+				MessageReliability.reliable)
 			if conn.reliable != unsafe { nil } {
 				return error('nethernet: the peer opened ${MessageReliability.reliable.label()} twice')
 			}
 			conn.reliable = channel
 		} else if MessageReliability.unreliable.matches(mut channel) {
-			observe_channel(observer, mut channel, false, MessageReliability.unreliable)
+			observe_channel(observer, observed_id, observed_network, mut channel, false,
+				MessageReliability.unreliable)
 			if conn.unreliable != unsafe { nil } {
 				return error('nethernet: the peer opened ${MessageReliability.unreliable.label()} twice')
 			}
@@ -385,7 +388,7 @@ fn (mut n Negotiation) adopt_channels(mut conn Conn, deadline time.Time) ! {
 			// Reported before the refusal. What a peer this end doesn't
 			// recognise actually opened is the whole content of the error
 			// below and it is otherwise lost with the connection.
-			observe_channel(observer, mut channel, false, none)
+			observe_channel(observer, observed_id, observed_network, mut channel, false, none)
 			return error('nethernet: the peer opened an unexpected data channel "${channel.label}"')
 		}
 	}

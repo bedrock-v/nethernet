@@ -292,6 +292,16 @@ fn test_a_connection_reports_its_channels_from_both_ends() {
 	assert opened.len == 2, 'the client should have opened two channels'
 	assert adopted.len == 2, 'the server should have adopted two channels'
 
+	// Every observation names the connection it came from. A listener runs one
+	// negotiation thread per offer through one shared callback, an
+	// observation that can't be attributed is one a recorder will file under
+	// whichever connection happens to be in flight.
+	for o in seen {
+		assert o.connection_id != 0, 'channel "${o.label}" carries no connection id'
+		assert o.connection_id == seen[0].connection_id, 'one connection reported two ids'
+		assert o.network_id != '', 'channel "${o.label}" carries no network id'
+	}
+
 	// Every channel is one of the two NetherNet ones, from both ends.
 	for o in seen {
 		assert o.reliability != none, 'channel "${o.label}" matched neither reliability'

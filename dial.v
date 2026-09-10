@@ -79,8 +79,12 @@ pub fn dial(network_id string, mut signaling Signaling, config DialConfig) !&Con
 		MessageReliability.reliable.options())!
 	conn.unreliable = pc.create_data_channel(MessageReliability.unreliable.label(),
 		MessageReliability.unreliable.options())!
-	observe_channel(config.observe_channel, mut conn.reliable, true, MessageReliability.reliable)
-	observe_channel(config.observe_channel, mut conn.unreliable, true, MessageReliability.unreliable)
+	// Read before the calls below take a mutable reference into conn.
+	observed_id, observed_network := conn.id, conn.network_id
+	observe_channel(config.observe_channel, observed_id, observed_network, mut conn.reliable,
+		true, MessageReliability.reliable)
+	observe_channel(config.observe_channel, observed_id, observed_network, mut conn.unreliable,
+		true, MessageReliability.unreliable)
 
 	mut collector := &SignalCollector{
 		connection_id: connection_id
