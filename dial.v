@@ -40,6 +40,9 @@ pub:
 	// coming up.
 	timeout time.Duration  = 30 * time.second
 	logger  logging.Logger = logging.nop()
+	// observe_channel reports each data channel as the connection takes it.
+	// It's for research tooling and changes nothing about the connection.
+	observe_channel ?ObserveChannel
 }
 
 // dial establishes a connection to the network named by network_id.
@@ -76,6 +79,8 @@ pub fn dial(network_id string, mut signaling Signaling, config DialConfig) !&Con
 		MessageReliability.reliable.options())!
 	conn.unreliable = pc.create_data_channel(MessageReliability.unreliable.label(),
 		MessageReliability.unreliable.options())!
+	observe_channel(config.observe_channel, mut conn.reliable, true, MessageReliability.reliable)
+	observe_channel(config.observe_channel, mut conn.unreliable, true, MessageReliability.unreliable)
 
 	mut collector := &SignalCollector{
 		connection_id: connection_id

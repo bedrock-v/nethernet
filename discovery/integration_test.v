@@ -195,3 +195,124 @@ fn transport_logger() logging.Logger {
 	}
 	return logging.default('test', .debug)
 }
+
+const observation_port = 17553
+
+const observation_network_id = u64(998879)
+
+fn test_a_connection_reports_its_channels_from_both_ends() {
+	observations := chan nethernet.ChannelObservation{cap: 16}
+	record := fn [observations] (o nethernet.ChannelObservation) {
+		select {
+			observations <- o {}
+			else {}
+		}
+	}
+
+	mut host := listen(':${observation_port}',
+		network_id: observation_network_id
+		broadcast:  false
+	)!
+	defer {
+		host.close()
+	}
+	host.set_server_data(ServerData{
+		server_name:      'test'
+		level_name:       'test level'
+		max_player_count: 10
+	})
+
+	mut listener := nethernet.listen(mut host,
+		allow_anonymous: true
+		interfaces:      loopback_only
+		logger:          transport_logger()
+		observe_channel: record
+	)!
+	defer {
+		listener.close()
+	}
+
+	mut client := listen('',
+		broadcast_address:  '127.0.0.1:${observation_port}'
+		broadcast_interval: 200 * time.millisecond
+	)!
+	defer {
+		client.close()
+	}
+
+	network_id := await_server(mut client, 10 * time.second)!
+	mut accepted := chan &nethernet.Conn{cap: 1}
+	spawn accept_one(mut listener, accepted)
+
+	mut conn := nethernet.dial(network_id.str(), mut client,
+		interfaces:      loopback_only
+		logger:          transport_logger()
+		observe_channel: record
+	)!
+	defer {
+		conn.close()
+	}
+
+	mut server_conn := &nethernet.Conn(unsafe { nil })
+	select {
+		c := <-accepted {
+			server_conn = c
+		}
+		15 * time.second {
+			assert false, 'the server never accepted the connection'
+			return
+		}
+	}
+	defer {
+		server_conn.close()
+	}
+
+	mut seen := []nethernet.ChannelObservation{}
+	for seen.len < 4 {
+		select {
+			o := <-observations {
+				seen << o
+			}
+			10 * time.second {
+				assert false, 'only ${seen.len} of 4 channel observations arrived'
+				return
+			}
+		}
+	}
+
+	mut opened := []nethernet.ChannelObservation{}
+	mut adopted := []nethernet.ChannelObservation{}
+	for o in seen {
+		if o.opened_locally {
+			opened << o
+		} else {
+			adopted << o
+		}
+	}
+	assert opened.len == 2, 'the client should have opened two channels'
+	assert adopted.len == 2, 'the server should have adopted two channels'
+
+	// Every channel is one of the two NetherNet ones, from both ends.
+	for o in seen {
+		assert o.reliability != none, 'channel "${o.label}" matched neither reliability'
+		assert !o.negotiated, 'NetherNet channels are opened through DCEP, not negotiated'
+		assert o.protocol == '', 'unexpected subprotocol "${o.protocol}"'
+	}
+
+	for o in adopted {
+		reliability := o.reliability or { continue }
+		assert o.label == reliability.label()
+		match reliability {
+			.reliable {
+				assert o.ordered
+				assert o.reliable
+			}
+			.unreliable {
+				assert !o.reliable
+			}
+		}
+		// The transports are up by the time the server adopts a channel, so it
+		// runs on a stream the client and server both know.
+		assert o.id != none, 'adopted channel "${o.label}" has no stream id'
+	}
+}

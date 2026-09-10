@@ -39,6 +39,10 @@ pub:
 	// arriving to the transports coming up.
 	negotiation_timeout time.Duration  = 30 * time.second
 	logger              logging.Logger = logging.nop()
+	// observe_channel reports each data channel as a connection takes it
+	// including one this end refuses. It's for research tooling and changes
+	// nothing about the connection.
+	observe_channel ?ObserveChannel
 }
 
 // Listener accepts NetherNet connections offered to a local network.
@@ -363,18 +367,25 @@ fn (mut n Negotiation) adopt_channels(mut conn Conn, deadline time.Time) ! {
 			return error('nethernet: the peer did not open both data channels in time')
 		}
 		mut channel := conn.pc.accept_data_channel(remaining)!
+		observer := n.listener.config.observe_channel
 
 		if MessageReliability.reliable.matches(mut channel) {
+			observe_channel(observer, mut channel, false, MessageReliability.reliable)
 			if conn.reliable != unsafe { nil } {
 				return error('nethernet: the peer opened ${MessageReliability.reliable.label()} twice')
 			}
 			conn.reliable = channel
 		} else if MessageReliability.unreliable.matches(mut channel) {
+			observe_channel(observer, mut channel, false, MessageReliability.unreliable)
 			if conn.unreliable != unsafe { nil } {
 				return error('nethernet: the peer opened ${MessageReliability.unreliable.label()} twice')
 			}
 			conn.unreliable = channel
 		} else {
+			// Reported before the refusal. What a peer this end doesn't
+			// recognise actually opened is the whole content of the error
+			// below and it is otherwise lost with the connection.
+			observe_channel(observer, mut channel, false, none)
 			return error('nethernet: the peer opened an unexpected data channel "${channel.label}"')
 		}
 	}
