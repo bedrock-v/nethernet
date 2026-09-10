@@ -30,7 +30,7 @@ const checksum_size = 32
 // any other setting. Here it is what the game does, and interoperating means
 // doing the same.
 fn encrypt(src []u8) []u8 {
-	block := aes.new_cipher(key[..])
+	block := aes.new_cipher(key[..]) or { panic('discovery: ${err}') }
 	padded := pad(src)
 
 	mut dst := []u8{len: padded.len}
@@ -48,7 +48,7 @@ fn decrypt(src []u8) ![]u8 {
 	if src.len == 0 || src.len % block_size != 0 {
 		return error('discovery: ciphertext of ${src.len} bytes is not a whole number of blocks')
 	}
-	block := aes.new_cipher(key[..])
+	block := aes.new_cipher(key[..]) or { panic('discovery: ${err}') }
 
 	mut dst := []u8{len: src.len}
 	for offset := 0; offset < src.len; offset += block_size {
