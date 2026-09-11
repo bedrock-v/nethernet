@@ -313,6 +313,7 @@ fn test_a_connection_reports_its_channels_from_both_ends() {
 				assert !o.reliable
 			}
 		}
+
 		// The transports are up by the time the server adopts a channel, so it
 		// runs on a stream the client and server both know.
 		assert o.id != none, 'adopted channel "${o.label}" has no stream id'

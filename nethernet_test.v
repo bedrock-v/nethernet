@@ -240,7 +240,8 @@ fn test_identity_assertion_accepts_a_nested_assertion() {
 	identity := generate_server_identity(private_key, 'self')!
 	data := identity.sign(sample_sdp)!
 
-	nested := base64.encode('{"assertion":{"fingerprints":${json_string(data.fingerprints)},"token":${json_string(data.token)}},"idp":{"domain":"self","protocol":"default"}}'.bytes())
+	nested :=
+		base64.encode('{"assertion":{"fingerprints":${json_string(data.fingerprints)},"token":${json_string(data.token)}},"idp":{"domain":"self","protocol":"default"}}'.bytes())
 	read := extract_identity('${sample_sdp}a=identity:${nested}\r\n') or {
 		assert false, 'a nested assertion was not read'
 		return

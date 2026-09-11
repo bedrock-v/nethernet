@@ -61,7 +61,8 @@ fn test_offer_is_answered_with_the_listeners_answer() {
 	}
 	h.notify(notifier)
 
-	answered := http.post('http://${h.server.addr}/v1/join/123', 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n')!
+	answered := http.post('http://${h.server.addr}/v1/join/123',
+		'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n')!
 	assert answered.status() == .ok, 'answered ${answered.status_code}: ${answered.body}'
 	assert answered.body == notifier.answer
 }
