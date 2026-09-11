@@ -47,12 +47,11 @@ pub:
 	// peer opened and this side adopted. Which side opens which is a NetherNet
 	// rule rather than a WebRTC one.
 	opened_locally bool
-	// reliability is which of the two NetherNet channels this was taken as and
-	// none when it matched neither.
+	// reliability is which NetherNet channel class this channel matched.
+	// none means it matched neither known channel shape.
 	//
-	// That last case is the one worth recording. A channel this end refuses is
-	// otherwise visible only as an error message and what an unrecognised peer
-	// actually opened is exactly what a reader of that error wants to know.
+	// A matching channel may still be rejected later, for example when the peer
+	// opens the same channel twice.
 	reliability ?MessageReliability
 }
 
