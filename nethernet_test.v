@@ -201,6 +201,19 @@ fn test_a_malformed_public_key_is_refused() {
 	}
 }
 
+fn test_a_der_length_past_the_input_is_refused() {
+	for der in [
+		[u8(0x30), 0x84, 0x7f, 0xff, 0xff, 0xff, 0x00],
+		[u8(0x30), 0x84, 0x7f, 0xff, 0xff, 0xfa, 0x00],
+		[u8(0x30), 0x84, 0xff, 0xff, 0xff, 0xff, 0x00],
+		[u8(0x30), 0x82, 0x01, 0x00, 0x00],
+	] {
+		if _ := decode_public_key(der) {
+			assert false, 'a key declaring more bytes than it has decoded'
+		}
+	}
+}
+
 fn test_der_and_raw_signatures_convert_both_ways() {
 	private_key := ecdsa.PrivateKey.new(nid: .secp384r1)!
 	der := private_key.sign('payload'.bytes())!

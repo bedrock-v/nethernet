@@ -158,7 +158,9 @@ fn (mut r Asn1Reader) read(tag u8) ![]u8 {
 			r.offset++
 		}
 	}
-	if length < 0 || r.offset + length > r.data.len {
+	// Compared against what remains rather than added to offset: a four byte
+	// length is chosen by the peer and the sum can overflow past the check.
+	if length < 0 || length > r.data.len - r.offset {
 		return error('nethernet: DER element of ${length} bytes exceeds the remaining input')
 	}
 	body := r.data[r.offset..r.offset + length]
