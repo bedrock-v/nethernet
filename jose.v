@@ -8,8 +8,8 @@ import encoding.base64
 // NetherNet binds an identity to a peer connection with a JWS: the token in the
 // SDP carries a public key, and a detached signature over the DTLS fingerprints
 // proves the sender holds the matching private key. V's ECDSA bindings speak
-// DER signatures and OpenSSL's own key encoding, while JOSE wants raw r||s and
-// X.509 SubjectPublicKeyInfo, so the conversions live here.
+// DER signatures and raw EC points, while JOSE wants raw r||s and X.509
+// SubjectPublicKeyInfo, the conversions live here.
 
 // base64url_encode encodes without padding, as every JOSE field requires.
 fn base64url_encode(data []u8) string {
@@ -158,7 +158,9 @@ fn (mut r Asn1Reader) read(tag u8) ![]u8 {
 			r.offset++
 		}
 	}
-	if length < 0 || r.offset + length > r.data.len {
+	// Compared against what remains rather than added to offset: a four byte
+	// length is chosen by the peer and the sum can overflow past the check.
+	if length < 0 || length > r.data.len - r.offset {
 		return error('nethernet: DER element of ${length} bytes exceeds the remaining input')
 	}
 	body := r.data[r.offset..r.offset + length]
@@ -206,6 +208,50 @@ fn encode_public_key(key ecdsa.PublicKey) ![]u8 {
 }
 
 // decode_public_key reads a SubjectPublicKeyInfo produced by any peer.
+//
+// It is encode_public_key in reverse. crypto.ecdsa has no DER parser on its
+// default backend, so the structure is taken apart here and only the point is
+// handed over, on the curve the algorithm identifier names.
 fn decode_public_key(der []u8) !ecdsa.PublicKey {
-	return ecdsa.pubkey_from_bytes(der) or { error('nethernet: parse public key: ${err.msg()}') }
+	mut outer := Asn1Reader{
+		data: der
+	}
+	spki := outer.read(0x30)!
+	if outer.offset != der.len {
+		return error('nethernet: parse public key: ${der.len - outer.offset} bytes follow the key')
+	}
+	mut fields := Asn1Reader{
+		data: spki
+	}
+	algorithm := fields.read(0x30)!
+	bits := fields.read(0x03)!
+	if fields.offset != spki.len {
+		return error('nethernet: parse public key: unexpected fields after the key')
+	}
+	if algorithm.len <= oid_ec_public_key.len
+		|| algorithm[..oid_ec_public_key.len] != oid_ec_public_key {
+		return error('nethernet: parse public key: not an EC key')
+	}
+	nid, point_len := spki_curve(algorithm[oid_ec_public_key.len..])!
+	if bits.len != point_len + 1 || bits[0] != 0x00 {
+		return error('nethernet: parse public key: a ${nid} key needs a ${point_len} byte point')
+	}
+	return ecdsa.PublicKey.from_uncompressed_bytes(bits[1..], nid: nid) or {
+		error('nethernet: parse public key: ${err.msg()}')
+	}
+}
+
+// spki_curve names the curve behind an algorithm parameter and the length of an
+// uncompressed point on it.
+fn spki_curve(oid []u8) !(ecdsa.Nid, int) {
+	if oid == oid_prime256v1 {
+		return ecdsa.Nid.prime256v1, 65
+	}
+	if oid == oid_secp384r1 {
+		return ecdsa.Nid.secp384r1, 97
+	}
+	if oid == oid_secp521r1 {
+		return ecdsa.Nid.secp521r1, 133
+	}
+	return error('nethernet: parse public key: the key is on a curve NetherNet does not use')
 }
