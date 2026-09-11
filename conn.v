@@ -373,6 +373,7 @@ fn (mut c Conn) channel(reliability MessageReliability) !&webrtc.DataChannel {
 		.reliable { c.reliable }
 		.unreliable { c.unreliable }
 	}
+
 	if channel == unsafe { nil } {
 		return error('nethernet: ${reliability.label()} was never opened')
 	}

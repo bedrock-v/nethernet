@@ -21,9 +21,9 @@ pub mut:
 	// version is the game version, as displayed to a player.
 	version string @[json: 'version']
 	// level_name is the world's name. The server card never shows it.
-	level_name string @[json: 'level']
-	player_count     int @[json: 'players']
-	max_player_count int @[json: 'maxPlayers']
+	level_name       string @[json: 'level']
+	player_count     int    @[json: 'players']
+	max_player_count int    @[json: 'maxPlayers']
 	// game_type is the mode a joining player is put in.
 	game_type int @[json: 'gameType']
 }

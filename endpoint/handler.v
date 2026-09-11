@@ -245,6 +245,7 @@ fn (mut h EndpointHandler) handle_ping() http.Response {
 		resp.set_status(.ok)
 		return resp
 	}
+
 	body := current.encode()
 	h.log.debug('answering a ping with ${body}')
 	mut resp := http.Response{
