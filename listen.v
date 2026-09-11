@@ -39,10 +39,12 @@ pub:
 	// arriving to the transports coming up.
 	negotiation_timeout time.Duration  = 30 * time.second
 	logger              logging.Logger = logging.nop()
-	// observe_channel reports each data channel as a connection takes it
-	// including one this end refuses. It's for research tooling and changes
-	// nothing about the connection.
-	observe_channel ?ObserveChannel
+	// observer receives a snapshot of each data channel as a connection takes
+	// it, including one this end refuses. One observer is shared by every
+	// connection the listener negotiates. It's for research tooling and its
+	// reader never runs on the path that establishes a connection: see
+	// ChannelObserver.
+	observer ?&ChannelObserver
 }
 
 // Listener accepts NetherNet connections offered to a local network.
@@ -367,7 +369,7 @@ fn (mut n Negotiation) adopt_channels(mut conn Conn, deadline time.Time) ! {
 			return error('nethernet: the peer did not open both data channels in time')
 		}
 		mut channel := conn.pc.accept_data_channel(remaining)!
-		observer := n.listener.config.observe_channel
+		observer := n.listener.config.observer
 		observed_id, observed_network := conn.id, conn.network_id
 
 		if MessageReliability.reliable.matches(mut channel) {

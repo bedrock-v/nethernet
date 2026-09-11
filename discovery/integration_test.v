@@ -201,13 +201,7 @@ const observation_port = 17553
 const observation_network_id = u64(998879)
 
 fn test_a_connection_reports_its_channels_from_both_ends() {
-	observations := chan nethernet.ChannelObservation{cap: 16}
-	record := fn [observations] (o nethernet.ChannelObservation) {
-		select {
-			observations <- o {}
-			else {}
-		}
-	}
+	mut observer := nethernet.ChannelObserver.new(16)!
 
 	mut host := listen(':${observation_port}',
 		network_id: observation_network_id
@@ -226,7 +220,7 @@ fn test_a_connection_reports_its_channels_from_both_ends() {
 		allow_anonymous: true
 		interfaces:      loopback_only
 		logger:          transport_logger()
-		observe_channel: record
+		observer:        observer
 	)!
 	defer {
 		listener.close()
@@ -245,9 +239,9 @@ fn test_a_connection_reports_its_channels_from_both_ends() {
 	spawn accept_one(mut listener, accepted)
 
 	mut conn := nethernet.dial(network_id.str(), mut client,
-		interfaces:      loopback_only
-		logger:          transport_logger()
-		observe_channel: record
+		interfaces: loopback_only
+		logger:     transport_logger()
+		observer:   observer
 	)!
 	defer {
 		conn.close()
@@ -255,9 +249,7 @@ fn test_a_connection_reports_its_channels_from_both_ends() {
 
 	mut server_conn := &nethernet.Conn(unsafe { nil })
 	select {
-		c := <-accepted {
-			server_conn = c
-		}
+		server_conn = <-accepted {}
 		15 * time.second {
 			assert false, 'the server never accepted the connection'
 			return
@@ -270,7 +262,7 @@ fn test_a_connection_reports_its_channels_from_both_ends() {
 	mut seen := []nethernet.ChannelObservation{}
 	for seen.len < 4 {
 		select {
-			o := <-observations {
+			o := <-observer.observations {
 				seen << o
 			}
 			10 * time.second {
@@ -325,4 +317,79 @@ fn test_a_connection_reports_its_channels_from_both_ends() {
 		// runs on a stream the client and server both know.
 		assert o.id != none, 'adopted channel "${o.label}" has no stream id'
 	}
+}
+
+const starved_port = 17555
+
+const starved_network_id = u64(998883)
+
+// An observer that never reads is the limit of a slow one. Its reader's code
+// must not run on the path that establishes a connection, so a reader that is
+// absent altogether has to cost observations rather than time: the handshake
+// completes and the overflow is counted.
+fn test_an_observer_that_never_reads_cannot_hold_up_the_handshake() {
+	// Room for one observation, and nothing will ever take it out.
+	mut observer := nethernet.ChannelObserver.new(1)!
+
+	mut host := listen(':${starved_port}',
+		network_id: starved_network_id
+		broadcast:  false
+	)!
+	defer {
+		host.close()
+	}
+	host.set_server_data(ServerData{
+		server_name:      'test'
+		level_name:       'test level'
+		max_player_count: 10
+	})
+
+	mut listener := nethernet.listen(mut host,
+		allow_anonymous: true
+		interfaces:      loopback_only
+		logger:          transport_logger()
+		observer:        observer
+	)!
+	defer {
+		listener.close()
+	}
+
+	mut client := listen('',
+		broadcast_address:  '127.0.0.1:${starved_port}'
+		broadcast_interval: 200 * time.millisecond
+	)!
+	defer {
+		client.close()
+	}
+
+	network_id := await_server(mut client, 10 * time.second)!
+	mut accepted := chan &nethernet.Conn{cap: 1}
+	spawn accept_one(mut listener, accepted)
+
+	mut conn := nethernet.dial(network_id.str(), mut client,
+		interfaces: loopback_only
+		logger:     transport_logger()
+		observer:   observer
+	)!
+	defer {
+		conn.close()
+	}
+
+	mut server_conn := &nethernet.Conn(unsafe { nil })
+	select {
+		server_conn = <-accepted {}
+		15 * time.second {
+			assert false, 'the server never accepted the connection'
+			return
+		}
+	}
+	defer {
+		server_conn.close()
+	}
+
+	// Two channels opened by the client and two adopted by the server were
+	// offered. One fit; the other three were dropped and counted and the
+	// connection came up regardless.
+	assert observer.observations.len == 1
+	assert observer.dropped() == 3, 'expected 3 dropped observations, counted ${observer.dropped()}'
 }
