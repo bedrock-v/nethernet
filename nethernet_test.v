@@ -2,6 +2,7 @@ module nethernet
 
 import crypto.ecdsa
 import encoding.base64
+import encoding.hex
 import time
 
 const sample_sdp = 'v=0\r\n' + 'o=- 1 2 IN IP4 127.0.0.1\r\n' + 's=-\r\n' + 't=0 0\r\n' +
@@ -149,12 +150,55 @@ fn token_expiry(token string) !i64 {
 }
 
 fn test_public_key_encoding_round_trip() {
-	private_key := ecdsa.PrivateKey.new(nid: .secp384r1)!
-	public_key := private_key.public_key()!
+	for nid in [ecdsa.Nid.prime256v1, .secp384r1, .secp521r1] {
+		private_key := ecdsa.PrivateKey.new(nid: nid)!
+		public_key := private_key.public_key()!
 
-	der := encode_public_key(public_key)!
-	decoded := decode_public_key(der)!
-	assert decoded.equal(public_key)
+		der := encode_public_key(public_key)!
+		decoded := decode_public_key(der)!
+		assert decoded.equal(public_key), 'a ${nid} key did not survive the round trip'
+	}
+}
+
+// openssl_p384_spki is a P-384 key as OpenSSL's i2d_PUBKEY writes it which is
+// what a peer on any other stack sends.
+const openssl_p384_spki = '3076301006072a8648ce3d020106052b81040022036200047603ab9946d88aea4b191aa5414277b541b1f76ea1c2d287df301322113de9b569c65e55448ea5535e40fecda5c4989013cd40588563f88b91e4b4d3f09f328f83c2e07a62a2a262a66841dd5d36e630bc24961031947c4cc6472a633ee88121'
+
+fn test_a_key_encoded_elsewhere_decodes_to_its_point() {
+	der := hex.decode(openssl_p384_spki)!
+	key := decode_public_key(der)!
+	assert key.uncompressed_bytes()! == der[der.len - 97..]
+}
+
+fn test_a_malformed_public_key_is_refused() {
+	der := hex.decode(openssl_p384_spki)!
+
+	mut trailing := der.clone()
+	trailing << 0x00
+	// 0x0a ends the OID of secp256k1, a curve NetherNet doesn't use.
+	mut other_curve := der.clone()
+	other_curve[19] = 0x0a
+	mut unused_bits := der.clone()
+	unused_bits[22] = 0x01
+	// A P 384 point under the P 256 identifier.
+	mut algorithm := oid_ec_public_key.clone()
+	algorithm << oid_prime256v1
+	mut bits := [u8(0x00)]
+	bits << der[der.len - 97..]
+	mut body := asn1_tagged(0x30, algorithm)
+	body << asn1_tagged(0x03, bits)
+	mismatched := asn1_tagged(0x30, body)
+
+	for name, candidate in {
+		'trailing bytes':         trailing
+		'another curve':          other_curve
+		'unused bits':            unused_bits
+		'point of another curve': mismatched
+	} {
+		if _ := decode_public_key(candidate) {
+			assert false, 'a key with ${name} decoded'
+		}
+	}
 }
 
 fn test_der_and_raw_signatures_convert_both_ways() {
