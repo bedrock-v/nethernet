@@ -50,6 +50,25 @@ fn is_compact_jws(text string) bool {
 	return text != '' && text.count('.') == 2
 }
 
+// TokenVerifier decides whether the token in a peer's identity assertion was
+// issued by somebody this server trusts.
+//
+// It is only half of validating an offer. Whatever a verifier decides, the
+// detached signature over the SDP fingerprints is still checked against the
+// key the token names, and that is what ties the identity to the DTLS
+// certificate the peer presents.
+//
+// This package cannot verify a client token by itself: one is issued by
+// Minecraft's authorization service and signed with RS256 against keys that
+// rotate, which means a JWKS lookup and a policy about who is trusted. Both
+// belong to the application, so it supplies them here.
+pub interface TokenVerifier {
+mut:
+	// verify_token returns an error when the token is not trusted. The token is
+	// a compact JWS as it appeared in the assertion.
+	verify_token(token string) !
+}
+
 // TokenClaims are the claims a NetherNet identity token is read for. A client
 // token carries more - a gamertag and an XUID among them - but nothing else is
 // needed to bind the identity.
@@ -136,6 +155,14 @@ fn (d &IdentityData) verify(sdp_text string, public_key ecdsa.PublicKey) ! {
 	}
 }
 
+// encode_public_key_base64 renders a public key the way a token's `cpk` claim
+// carries it: X.509 SubjectPublicKeyInfo, base64. A caller comparing the key a
+// peer proved against one a later protocol message names needs both in the same
+// form.
+pub fn encode_public_key_base64(key ecdsa.PublicKey) !string {
+	return base64.encode(encode_public_key(key)!)
+}
+
 // claim_public_key reads the `cpk` claim, and when self_signed is set also
 // checks that the token was signed by that key.
 //
@@ -151,7 +178,13 @@ pub fn claim_public_key(token string, self_signed bool) !ecdsa.PublicKey {
 	claims := parse_token_claims(base64url_decode(segments[1])!)!
 
 	now := time.now().unix()
-	if claims.expires_at != 0 && now > claims.expires_at {
+	// An expiry is required rather than merely honoured when present. Without
+	// one a captured token is worth replaying forever, and a peer that signs its
+	// own has no reason to leave it out.
+	if claims.expires_at == 0 {
+		return error('nethernet: token carries no exp claim')
+	}
+	if now > claims.expires_at + i64(token_clock_skew / time.second) {
 		return error('nethernet: token expired at ${claims.expires_at}')
 	}
 	if claims.issued_at != 0 && claims.issued_at > now + i64(token_clock_skew / time.second) {
