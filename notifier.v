@@ -134,7 +134,10 @@ mut:
 	// ufrag is the local ICE username fragment. The game's parser expects every
 	// candidate to name the credentials it belongs to.
 	ufrag string
-	log   logging.Logger = logging.nop()
+	// advertised, when non-empty, is the only set of local addresses the peer is
+	// told about.
+	advertised []string
+	log        logging.Logger = logging.nop()
 }
 
 fn (mut t CandidateTrickler) run() {
@@ -157,6 +160,9 @@ fn (mut t CandidateTrickler) run() {
 		idle = 0
 
 		for index in sent .. candidates.len {
+			if !candidate_allowed(candidates[index], t.advertised) {
+				continue
+			}
 			t.signaling.signal(Signal{
 				typ:           signal_type_candidate
 				connection_id: conn.id

@@ -275,7 +275,7 @@ fn (mut h EndpointHandler) handle_offer(req http.Request) http.Response {
 	}
 
 	h.log.debug('an offer of ${req.data.len} bytes arrived for network ${network_id}')
-	sig := h.negotiate(network_id, req.data) or {
+	sig := h.negotiate(network_id, req.data, req.remote_addr) or {
 		msg := err.msg()
 		if msg.contains('not admitted') {
 			return text_response(.service_unavailable, 'Service unavailable')
@@ -325,7 +325,10 @@ fn (mut h EndpointHandler) notifier_snapshot() []nethernet.Notifier {
 // negotiate broadcasts the offer to every subscriber and waits for the
 // answer or the configured timeout. Admitted once any subscriber accepts it
 // - only the Listener itself ever does.
-fn (mut h EndpointHandler) negotiate(network_id string, offer string) !nethernet.Signal {
+//
+// remote_address is where the request came from, which is the only evidence of
+// where a peer really is when its own offer names nothing reachable.
+fn (mut h EndpointHandler) negotiate(network_id string, offer string, remote_address string) !nethernet.Signal {
 	mut notifiers := h.notifier_snapshot()
 	if notifiers.len == 0 {
 		return error('nethernet/endpoint: no listener registered')
@@ -345,10 +348,11 @@ fn (mut h EndpointHandler) negotiate(network_id string, offer string) !nethernet
 	}
 
 	sig := nethernet.Signal{
-		typ:           nethernet.signal_type_offer
-		connection_id: connection_id
-		data:          offer
-		network_id:    network_id
+		typ:            nethernet.signal_type_offer
+		connection_id:  connection_id
+		data:           offer
+		network_id:     network_id
+		remote_address: remote_address
 	}
 
 	mut admitted := false

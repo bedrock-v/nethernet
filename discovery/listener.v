@@ -233,7 +233,7 @@ pub fn (mut l Listener) servers() map[u64]ServerData {
 
 // is_closed reports whether the listener has been closed.
 pub fn (mut l Listener) is_closed() bool {
-	l.close_mu.lock()
+	l.close_mu.@lock()
 	defer {
 		l.close_mu.unlock()
 	}
@@ -242,7 +242,7 @@ pub fn (mut l Listener) is_closed() bool {
 
 // close stops the listener and drops every subscription.
 pub fn (mut l Listener) close() {
-	l.close_mu.lock()
+	l.close_mu.@lock()
 	if l.closed {
 		l.close_mu.unlock()
 		return
@@ -305,7 +305,7 @@ fn (mut l Listener) handle(data []u8, addr net.Addr) ! {
 			l.responses_mu.unlock()
 		}
 		MessagePacket {
-			l.deliver(pk, sender_id)!
+			l.deliver(pk, sender_id, addr)!
 		}
 	}
 }
@@ -339,7 +339,7 @@ fn (mut l Listener) answer_request(addr net.Addr) ! {
 }
 
 // deliver hands a signal to every subscriber.
-fn (mut l Listener) deliver(pk MessagePacket, sender_id u64) ! {
+fn (mut l Listener) deliver(pk MessagePacket, sender_id u64, addr net.Addr) ! {
 	if pk.recipient_id != l.id {
 		return
 	}
@@ -351,6 +351,7 @@ fn (mut l Listener) deliver(pk MessagePacket, sender_id u64) ! {
 
 	mut sig := nethernet.Signal.parse(pk.data)!
 	sig.network_id = sender_id.str()
+	sig.remote_address = addr.str()
 
 	l.notifiers_mu.@rlock()
 	mut notifiers := []nethernet.Notifier{cap: l.notifiers.len}

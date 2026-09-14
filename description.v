@@ -14,6 +14,20 @@ import x.json2
 // of every message for the segment counter, leaving this for the payload.
 pub const max_message_size = 262143
 
+// sctp_message_size is how large a single data channel message is actually
+// written, counter byte included.
+//
+// It is far below what the description advertises on purpose: the game's own
+// stack writes messages of this size, and an SCTP implementation is free to
+// refuse anything larger than it is prepared to reassemble whatever the
+// negotiated maximum says. Sending one big message where vanilla sends many
+// small ones is the kind of difference a peer notices.
+pub const sctp_message_size = 10000
+
+// max_segment_payload is what one segment carries once the counter byte is
+// taken off the front.
+pub const max_segment_payload = sctp_message_size - 1
+
 // inject_identity adds the identity assertion to a local description.
 //
 // It goes ahead of the first media section: `a=identity` is a session-level
@@ -174,4 +188,147 @@ fn json_string(value string) string {
 		}
 	}
 	return out + '"'
+}
+
+// candidate_address is the connection address of a candidate line, or none when
+// it carries none.
+//
+// RFC 5245 section 15.1 puts it in the fifth token, after the foundation, the
+// component, the transport and the priority.
+fn candidate_address(candidate string) ?string {
+	fields := candidate_fields(candidate)
+	if fields.len < 5 {
+		return none
+	}
+	return fields[4]
+}
+
+// candidate_fields splits a candidate line into its tokens, with the `a=` and
+// `candidate:` prefixes taken off whichever way it was written.
+fn candidate_fields(candidate string) []string {
+	mut body := candidate.trim_space()
+	if body.starts_with('a=') {
+		body = body[2..]
+	}
+	if body.starts_with('candidate:') {
+		body = body['candidate:'.len..]
+	}
+	return body.split(' ').filter(it != '')
+}
+
+// inferred_candidate_limit bounds how many ports are guessed at for one peer.
+//
+// A peer gathers one port per interface it holds, so a handful covers any real
+// client. How many packets leave here is not something the peer should get to
+// decide by sending a long offer.
+const inferred_candidate_limit = 8
+
+// inferred_peer_candidates builds candidates for the address a peer signalled
+// from, one per port it gathered locally.
+//
+// A peer holding no reflexive candidate offers nothing a host on another
+// network can reach, and its own checks die on the first NAT they meet. Its
+// public address is known anyway, because it just sent a signal from it, and
+// consumer NATs usually keep the port a socket already uses. Checking there
+// costs a few packets, and if the mapping does work that way the check opens
+// the path in both directions.
+//
+// Nothing is inferred for a peer that already carries a reflexive or relayed
+// candidate, or that signalled from an address on this network: there is a real
+// path in both cases.
+fn inferred_peer_candidates(sdp_text string, signaled_from string) []string {
+	host, _ := split_host_port(signaled_from) or { return []string{} }
+	if !is_routable(host) {
+		return []string{}
+	}
+
+	mut ports := []string{}
+	for line in sdp_text.split_into_lines() {
+		trimmed := line.trim_space()
+		if !trimmed.starts_with('a=candidate:') {
+			continue
+		}
+		fields := candidate_fields(trimmed)
+		if fields.len < 8 || fields[6] != 'typ' {
+			continue
+		}
+		if fields[7] != 'host' {
+			// The peer can already be reached without guessing.
+			return []string{}
+		}
+		if fields[2].to_lower() == 'udp' && ports.len < inferred_candidate_limit
+			&& fields[5] !in ports {
+			ports << fields[5]
+		}
+	}
+
+	mut out := []string{cap: ports.len}
+	mut foundation := 90000000
+	for port in ports {
+		out << 'candidate:${foundation} 1 UDP 1677721855 ${host} ${port} typ srflx raddr 0.0.0.0 rport 0'
+		foundation++
+	}
+	return out
+}
+
+// filter_candidates drops every candidate whose address is not in allowed.
+//
+// ICE gathers on every interface it can see, which on a host running containers
+// or an overlay network includes addresses nothing outside can reach. Each one
+// costs the peer a round of connectivity checks before it gives up, so a host
+// that knows which of its addresses are reachable should announce only those.
+//
+// An empty set announces everything. So does a set that would leave nothing at
+// all: no candidates can never connect, and a misconfigured list should not be
+// the reason a server is unreachable.
+fn filter_candidates(sdp_text string, allowed []string) string {
+	if allowed.len == 0 {
+		return sdp_text
+	}
+	mut keys := []string{cap: allowed.len}
+	for address in allowed {
+		keys << address_key(address.trim_space())
+	}
+
+	mut lines := []string{}
+	mut kept := false
+	mut dropped := false
+	for line in sdp_text.split_into_lines() {
+		// A trailing empty line makes some stacks reject the whole description.
+		if line == '' {
+			continue
+		}
+		if line.trim_space().starts_with('a=candidate:') {
+			address := candidate_address(line) or {
+				dropped = true
+				continue
+			}
+			if address_key(address) !in keys {
+				dropped = true
+				continue
+			}
+			kept = true
+		}
+		lines << line
+	}
+	if !kept && dropped {
+		return sdp_text
+	}
+	return lines.join('\r\n') + '\r\n'
+}
+
+// candidate_allowed reports whether a single candidate line may be announced,
+// for the trickled candidates that never pass through filter_candidates.
+fn candidate_allowed(candidate string, allowed []string) bool {
+	if allowed.len == 0 {
+		return true
+	}
+	address := candidate_address(candidate) or { return false }
+	key := address_key(address)
+	for entry in allowed {
+		if address_key(entry.trim_space()) == key {
+			return true
+		}
+	}
+	return false
 }

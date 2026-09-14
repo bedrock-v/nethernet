@@ -230,17 +230,22 @@ pub fn (mut c Conn) write(b []u8) !int {
 //
 // Each segment is prefixed with the number of segments still to come, counting
 // down to zero on the last. The counter is one byte, so a message spans at most
-// 256 segments.
+// 256 segments, and a segment carries max_segment_payload rather than the size
+// the description advertises.
 pub fn (mut c Conn) send(data []u8, reliability MessageReliability) !int {
 	if c.is_closed() {
 		return error('nethernet: connection closed${c.close_reason()}')
 	}
-	if reliability == .unreliable && data.len > max_message_size {
+	if reliability == .unreliable && data.len > max_segment_payload {
 		return error('nethernet: ${data.len} bytes cannot be sent over ${reliability.label()}, which does not segment')
 	}
 	mut channel := c.channel(reliability)!
 
-	total := if data.len == 0 { 1 } else { (data.len + max_message_size - 1) / max_message_size }
+	total := if data.len == 0 {
+		1
+	} else {
+		(data.len + max_segment_payload - 1) / max_segment_payload
+	}
 	if total > max_segments {
 		return error('nethernet: ${data.len} bytes need ${total} segments, more than ${max_segments}')
 	}
@@ -252,8 +257,8 @@ pub fn (mut c Conn) send(data []u8, reliability MessageReliability) !int {
 
 	mut written := 0
 	for index in 0 .. total {
-		start := index * max_message_size
-		mut end := start + max_message_size
+		start := index * max_segment_payload
+		mut end := start + max_segment_payload
 		if end > data.len {
 			end = data.len
 		}
@@ -409,8 +414,9 @@ const candidate_poll_interval = 100 * time.millisecond
 const candidate_gather_timeout = 10 * time.second
 
 // gather_candidates waits for gathering to settle and returns every candidate,
-// for a peer that cannot accept them one at a time.
-fn (mut c Conn) gather_candidates(ufrag string, timeout time.Duration) ![]string {
+// for a peer that cannot accept them one at a time. A non-empty advertised set
+// keeps the unreachable ones out of the answer.
+fn (mut c Conn) gather_candidates(ufrag string, timeout time.Duration, advertised []string) ![]string {
 	deadline := time.now().add(timeout)
 	mut count := 0
 	mut idle := time.Duration(0)
@@ -434,7 +440,17 @@ fn (mut c Conn) gather_candidates(ufrag string, timeout time.Duration) ![]string
 	}
 	mut out := []string{cap: candidates.len}
 	for index, candidate in candidates {
+		if !candidate_allowed(candidate, advertised) {
+			continue
+		}
 		out << format_ice_candidate(index, candidate, ufrag)
+	}
+	if out.len == 0 {
+		// Announcing nothing can never connect, so a set that matched none of
+		// what was gathered is treated as a misconfiguration rather than obeyed.
+		for index, candidate in candidates {
+			out << format_ice_candidate(index, candidate, ufrag)
+		}
 	}
 	return out
 }

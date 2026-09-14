@@ -32,6 +32,27 @@ pub:
 	interfaces ice.InterfaceOptions
 	// ice_gather_policy limits which local candidates are gathered.
 	ice_gather_policy ice.GatherPolicy = .all
+	// ice_port_pool bounds the local ports media binds. Unset lets the kernel
+	// choose a port per peer, which nobody can write a firewall rule for. Every
+	// listener that should stay inside one range has to share one pool.
+	ice_port_pool ?&ice.PortPool
+	// advertised_addresses, when non-empty, is the only set of local addresses
+	// put into an answer.
+	//
+	// ICE gathers on every interface it can see, and on a host running
+	// containers or an overlay that includes addresses nothing outside can
+	// reach. Each one costs the peer a round of connectivity checks before it
+	// gives up.
+	advertised_addresses []string
+	// infer_peer_candidates guesses at where a peer really is when its offer
+	// carries nothing reachable, using the address the offer arrived from. It
+	// costs a few packets and is what gets a client behind a NAT connected.
+	infer_peer_candidates bool = true
+	// token_verifier decides whether a peer's identity token is trusted. Without
+	// one the token is read but not trusted: the key it names is still bound to
+	// this connection, so it proves the peer holds that key and nothing about
+	// who the peer is.
+	token_verifier ?TokenVerifier
 	// disable_trickle_ice gathers every candidate before sending the answer and
 	// embeds them in it, for a client that cannot accept them separately.
 	disable_trickle_ice bool
@@ -65,6 +86,10 @@ mut:
 	// while the token itself is reissued for every connection.
 	identity Identity
 
+	// token_verifier is the configured verifier, held here because verifying
+	// mutates it: one that reaches a key service caches what it fetched.
+	token_verifier ?TokenVerifier
+
 	offers   chan Signal
 	incoming chan &Conn
 
@@ -89,14 +114,21 @@ pub fn listen(mut signaling Signaling, config ListenConfig) !&Listener {
 		generate_server_identity(private_key, 'self')!
 	}
 
+	if _ := config.token_verifier {
+		log.debug('identity tokens are verified before an offer is answered')
+	} else {
+		log.warn('no token verifier was configured; a peer may present any identity token it likes')
+	}
+
 	mut l := &Listener{
-		signaling:  signaling
-		config:     config
-		log:        log
-		identity:   identity
-		network_id: signaling.network_id()
-		offers:     chan Signal{cap: signal_queue_size}
-		incoming:   chan &Conn{cap: pending_connections}
+		signaling:      signaling
+		config:         config
+		log:            log
+		identity:       identity
+		token_verifier: config.token_verifier
+		network_id:     signaling.network_id()
+		offers:         chan Signal{cap: signal_queue_size}
+		incoming:       chan &Conn{cap: pending_connections}
 	}
 	l.subscription = signaling.notify(l)
 	spawn l.run()
@@ -264,6 +296,7 @@ fn (mut n Negotiation) negotiate() !&Conn {
 	mut pc := webrtc.PeerConnection.new(
 		ice_servers:       credentials.to_webrtc()
 		ice_gather_policy: l.config.ice_gather_policy
+		ice_port_pool:     l.config.ice_port_pool
 		interfaces:        l.config.interfaces
 		max_message_size:  max_message_size + 1
 		logger:            l.config.logger
@@ -285,13 +318,25 @@ fn (mut n Negotiation) negotiate() !&Conn {
 	for candidate in description_candidates(n.offer.data) {
 		pc.add_ice_candidate(candidate) or { continue }
 	}
+	if l.config.infer_peer_candidates {
+		for candidate in inferred_peer_candidates(n.offer.data, n.offer.remote_address) {
+			pc.add_ice_candidate(candidate) or {
+				l.log.debug('inferred candidate "${candidate}" was refused: ${err.msg()}')
+				continue
+			}
+		}
+	}
 
 	answer := pc.create_answer()!
+	// Candidates are dropped before the assertion is made: the signature covers
+	// the fingerprints, but the description that is signed is the one the peer
+	// is going to read, and rewriting it afterwards invites the two to drift.
+	filtered := filter_candidates(answer.sdp, l.config.advertised_addresses)
 	// The key is the listener's, but the token is minted here: one signed at
 	// startup would have expired by the time a player joins a server that has
 	// been up for longer than a token lives.
 	identity := l.identity.reissue()!
-	sdp_text := inject_identity(answer.sdp, identity.sign(answer.sdp)!)
+	sdp_text := inject_identity(filtered, identity.sign(filtered)!)
 
 	ufrag := media_attribute(sdp_text, 'ice-ufrag') or {
 		return error('nethernet: the local answer carries no ICE credentials')
@@ -308,8 +353,8 @@ fn (mut n Negotiation) negotiate() !&Conn {
 			typ: .answer
 			sdp: sdp_text
 		})!
-		answered = embed_candidates(sdp_text, conn.gather_candidates(ufrag,
-			l.config.negotiation_timeout)!)
+		answered = embed_candidates(sdp_text, conn.gather_candidates(ufrag, l.config.negotiation_timeout,
+			l.config.advertised_addresses)!)
 	} else {
 		pc.set_local_description(webrtc.SessionDescription{
 			typ: .answer
@@ -331,10 +376,11 @@ fn (mut n Negotiation) negotiate() !&Conn {
 
 	if !disable_trickle {
 		mut trickler := &CandidateTrickler{
-			conn:      conn
-			signaling: signaling
-			ufrag:     ufrag
-			log:       l.log
+			conn:       conn
+			signaling:  signaling
+			ufrag:      ufrag
+			advertised: l.config.advertised_addresses
+			log:        l.log
 		}
 		spawn trickler.run()
 	}
@@ -398,18 +444,27 @@ fn (mut n Negotiation) adopt_channels(mut conn Conn, deadline time.Time) ! {
 
 // verify_client checks the client's identity assertion, if it made one.
 //
-// The token itself is issued by Minecraft's authorization service and signed
-// with RS256, which this package cannot verify; only the binding between the
-// token's key and this connection's fingerprints is checked here. A server must
-// also verify the Login packet's token at the protocol layer and confirm it
-// names the same key - otherwise a client may present any token it likes over a
-// connection it legitimately holds the key for.
+// Two things are checked, and they answer different questions. The configured
+// verifier decides whether the token was issued by somebody this server trusts,
+// which is what says who the peer is. The detached signature over the
+// fingerprints is checked either way, and that is what ties the identity to
+// this particular connection: a token replayed onto another one signs different
+// fingerprints and fails.
+//
+// Without a verifier the second check still holds, so the peer demonstrably
+// holds the key its token names - but the token could say anything, so a server
+// has to establish who the peer is some other way.
 fn (mut n Negotiation) verify_client(mut conn Conn, sdp_text string) ! {
 	identity := extract_identity(sdp_text) or {
 		if n.listener.config.allow_anonymous {
 			return
 		}
 		return error('nethernet: the offer carries no identity assertion')
+	}
+	if mut verifier := n.listener.token_verifier {
+		verifier.verify_token(identity.token) or {
+			return error('nethernet: the identity token is not trusted: ${err.msg()}')
+		}
 	}
 	public_key := claim_public_key(identity.token, false)!
 	identity.verify(sdp_text, public_key)!

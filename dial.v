@@ -139,7 +139,7 @@ fn negotiate_dial(mut conn Conn, mut signaling Signaling, mut pump SignalPump, c
 	if disable_trickle {
 		// Nothing will carry candidates later, so gathering has to finish before
 		// the offer goes out.
-		offered = embed_candidates(sdp_text, conn.gather_candidates(ufrag, config.timeout)!)
+		offered = embed_candidates(sdp_text, conn.gather_candidates(ufrag, config.timeout, [])!)
 	}
 
 	signaling.signal(Signal{

@@ -36,6 +36,13 @@ pub mut:
 	// network_id is the remote network this signal came from or is going to. It
 	// is carried alongside the signal rather than inside it.
 	network_id string
+	// remote_address is where the signal arrived from, as "ip:port", when the
+	// signalling channel knows. It is not part of the wire form and is empty on
+	// anything sent out.
+	//
+	// A peer that gathered no reflexive candidate of its own is unreachable
+	// without it: this is the only address that proves where it really is.
+	remote_address string
 }
 
 // str renders the signal in the form it is sent over signalling.
