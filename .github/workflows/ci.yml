@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
   # Weekly, so that a break caused by a new V release - or by a change in
   # webrtc-v, which is tracked from its default branch - is found before someone
@@ -143,7 +143,8 @@ jobs:
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           sleep 2
-          timeout 60 /tmp/lan_client 127.0.0.1:27551 | tee /tmp/client.log
+          # The logger writes to stderr, so it has to go through tee as well.
+          timeout 60 /tmp/lan_client 127.0.0.1:27551 2>&1 | tee /tmp/client.log
           grep -q 'server replied: hello from V' /tmp/client.log
       - name: Server log
         if: always()
