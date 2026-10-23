@@ -15,8 +15,8 @@ pub interface Signaling {
 	// `nethernet-disable-trickle-ice` setting, including Realms, cannot: every
 	// local candidate has to be gathered up front and embedded in the SDP.
 	disable_trickle_ice() bool
-mut:
 	// signal sends a signal to the network named by Signal.network_id.
+mut:
 	signal(sig Signal) !
 	// notify registers n for incoming signals and returns a subscription ID that
 	// stop_notify takes. Every subscription receives every signal; they are not
@@ -39,9 +39,9 @@ mut:
 
 // Notifier receives signals from a Signaling implementation.
 pub interface Notifier {
-mut:
 	// notify_signal handles one incoming signal and reports whether it was
 	// accepted. It must return promptly: the signalling channel calls it from
 	// its own read loop.
+mut:
 	notify_signal(sig Signal) bool
 }

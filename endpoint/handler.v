@@ -93,10 +93,10 @@ pub fn listen(config HandlerConfig) !&EndpointHandler {
 	}
 
 	mut server := &http.Server{
-		addr:     config.address
-		handler:  h
-		cert:     config.cert
-		cert_key: config.cert_key
+		addr:                 config.address
+		handler:              h
+		cert:                 config.cert
+		cert_key:             config.cert_key
 		// The caller has a logger of its own; the server's own banner would
 		// reach stdout without going through it.
 		show_startup_message: false

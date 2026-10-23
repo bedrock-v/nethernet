@@ -101,7 +101,8 @@ pub fn (o &ChannelObserver) dropped() u64 {
 // make no safer.
 fn (o &ChannelObserver) offer(observation ChannelObservation) {
 	select {
-		o.observations <- observation {}
+		o.observations <- observation {
+		}
 		else {
 			stdatomic.add_u64(&o.dropped, 1)
 		}

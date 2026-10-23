@@ -88,7 +88,8 @@ fn test_a_client_discovers_a_server_and_exchanges_messages() {
 
 	mut server_conn := &nethernet.Conn(unsafe { nil })
 	select {
-		server_conn = <-accepted {}
+		server_conn = <-accepted {
+		}
 		10 * time.second {
 			assert false, 'the listener did not accept the connection'
 			return
@@ -150,7 +151,8 @@ fn test_a_message_larger_than_one_segment_is_reassembled() {
 
 	mut server_conn := &nethernet.Conn(unsafe { nil })
 	select {
-		server_conn = <-accepted {}
+		server_conn = <-accepted {
+		}
 		10 * time.second {
 			assert false, 'the listener did not accept the connection'
 			return
@@ -249,7 +251,8 @@ fn test_a_connection_reports_its_channels_from_both_ends() {
 
 	mut server_conn := &nethernet.Conn(unsafe { nil })
 	select {
-		server_conn = <-accepted {}
+		server_conn = <-accepted {
+		}
 		15 * time.second {
 			assert false, 'the server never accepted the connection'
 			return
@@ -378,7 +381,8 @@ fn test_an_observer_that_never_reads_cannot_hold_up_the_handshake() {
 
 	mut server_conn := &nethernet.Conn(unsafe { nil })
 	select {
-		server_conn = <-accepted {}
+		server_conn = <-accepted {
+		}
 		15 * time.second {
 			assert false, 'the server never accepted the connection'
 			return

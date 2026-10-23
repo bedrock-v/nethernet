@@ -223,7 +223,8 @@ fn (mut l Listener) run() {
 	for !l.is_closed() {
 		mut sig := Signal{}
 		select {
-			sig = <-l.offers {}
+			sig = <-l.offers {
+			}
 			signal_poll_interval {
 				continue
 			}
@@ -278,7 +279,8 @@ fn (mut n Negotiation) run() {
 	}
 
 	select {
-		l.incoming <- conn {}
+		l.incoming <- conn {
+		}
 		n.listener.config.negotiation_timeout {
 			// Nobody is accepting, and holding the connection open would keep a
 			// peer believing it is in a game it will never join.

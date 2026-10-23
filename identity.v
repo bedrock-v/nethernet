@@ -63,9 +63,9 @@ fn is_compact_jws(text string) bool {
 // rotate, which means a JWKS lookup and a policy about who is trusted. Both
 // belong to the application, so it supplies them here.
 pub interface TokenVerifier {
-mut:
 	// verify_token returns an error when the token is not trusted. The token is
 	// a compact JWS as it appeared in the assertion.
+mut:
 	verify_token(token string) !
 }
 
@@ -269,7 +269,9 @@ fn jwk_curve(coordinate_len int) !ecdsa.Nid {
 		32 { ecdsa.Nid.prime256v1 }
 		48 { ecdsa.Nid.secp384r1 }
 		66 { ecdsa.Nid.secp521r1 }
-		else { error('nethernet: JWK coordinates of ${coordinate_len} bytes name no supported curve') }
+		else {
+			error('nethernet: JWK coordinates of ${coordinate_len} bytes name no supported curve')
+		}
 	}
 }
 
