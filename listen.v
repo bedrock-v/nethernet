@@ -147,6 +147,9 @@ pub fn (mut l Listener) accept(timeout time.Duration) !&Conn {
 	mut conn := &Conn(unsafe { nil })
 	select {
 		conn = <-l.incoming {
+			if isnil(conn) {
+				return error('nethernet: listener closed')
+			}
 			return conn
 		}
 		timeout {

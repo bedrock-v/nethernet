@@ -307,3 +307,44 @@ fn test_identity_assertion_accepts_a_nested_assertion() {
 	assert read.fingerprints == data.fingerprints
 	assert read.valid()
 }
+
+// SilentSignaling is a signalling channel nobody ever offers anything on.
+struct SilentSignaling {}
+
+fn (s &SilentSignaling) network_id() string {
+	return '1'
+}
+
+fn (s &SilentSignaling) disable_trickle_ice() bool {
+	return false
+}
+
+fn (mut s SilentSignaling) signal(sig Signal) ! {}
+
+fn (mut s SilentSignaling) notify(n Notifier) int {
+	return 0
+}
+
+fn (mut s SilentSignaling) stop_notify(id int) {}
+
+fn (mut s SilentSignaling) credentials() !Credentials {
+	return Credentials{}
+}
+
+fn (mut s SilentSignaling) pong_data(data []u8) {}
+
+fn (mut s SilentSignaling) is_closed() bool {
+	return false
+}
+
+fn test_accept_fails_when_the_listener_closes_during_the_wait() {
+	mut signaling := &SilentSignaling{}
+	mut l := listen(mut signaling, ListenConfig{})!
+	waiting := spawn fn [mut l] () bool {
+		l.accept(10 * time.second) or { return true }
+		return false
+	}()
+	time.sleep(100 * time.millisecond)
+	l.close()
+	assert waiting.wait(), 'accept returned a connection from a closed listener'
+}
