@@ -57,7 +57,9 @@ for {
 ```
 
 A server binds port 7551 so clients broadcasting there find it, and does not
-broadcast itself. `set_server_data` is what fills in the world card; a server
+broadcast itself. Each connection's media otherwise gets a port the kernel picks.
+Behind a firewall, pass `udp_mux: ice.UdpMux.new(port: 19133)!` to `listen` so
+they all share one port. You own the mux and close it after the listener. `set_server_data` is what fills in the world card; a server
 that already produces a RakNet pong response can pass it to `pong_data` instead.
 
 The advertisement is version 7 of the structure, which is what current clients
