@@ -36,7 +36,7 @@ pub:
 	// choose a port per peer, which nobody can write a firewall rule for. Every
 	// listener that should stay inside one range has to share one pool.
 	ice_port_pool ?&ice.PortPool
-	udp_mux ?&ice.UdpMux
+	udp_mux       ?&ice.UdpMux
 	// advertised_addresses, when non-empty, is the only set of local addresses
 	// put into an answer.
 	//
