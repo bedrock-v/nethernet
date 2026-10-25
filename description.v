@@ -54,32 +54,46 @@ fn inject_identity(sdp_text string, data IdentityData) string {
 	return lines.filter(it != '').join('\r\n') + '\r\n'
 }
 
+// NoIdentity is a description carrying no identity assertion which is what an
+// offline or custom implementation sends. One carrying an assertion that can't
+// be read is a different error: treating it as none would let a signed peer
+// through as anonymous, unbound.
+struct NoIdentity {
+	Error
+}
+
+fn (e NoIdentity) msg() string {
+	return 'carries no identity assertion'
+}
+
 // extract_identity reads the identity assertion out of a remote description.
-// It returns none when the peer sent none, which is what an offline or custom
-// implementation does.
-fn extract_identity(sdp_text string) ?IdentityData {
+fn extract_identity(sdp_text string) !IdentityData {
 	// The attribute belongs at session level and is written there, but it is
 	// read from anywhere in the description: a peer that places it after its
 	// first media section still means it, and no other attribute of this name
 	// exists to confuse it with.
-	encoded := media_attribute(sdp_text, 'identity')?
+	encoded := media_attribute(sdp_text, 'identity') or { return NoIdentity{} }
 	decoded := base64.decode(encoded)
 	if decoded.len == 0 {
-		return none
+		return error('carries an identity assertion that is not base64')
 	}
-	outer := json2.decode[json2.Any](decoded.bytestr()) or { return none }.as_map()
+	outer := json2.decode[json2.Any](decoded.bytestr()) or {
+		return error('carries an identity assertion that is not JSON: ${err}')
+	}.as_map()
 
-	assertion := decode_assertion(outer['assertion'] or { return none })?
-	idp := outer['idp'] or { return none }.as_map()
+	assertion := decode_assertion(outer['assertion'] or {
+		return error('carries an identity assertion with no assertion in it')
+	}) or { return error('carries an identity assertion whose assertion is unreadable') }
+	idp := outer['idp'] or { return error('carries an identity assertion naming no identity provider') }.as_map()
 
 	data := IdentityData{
-		fingerprints: assertion['fingerprints'] or { return none }.str()
-		token:        assertion['token'] or { return none }.str()
+		fingerprints: if value := assertion['fingerprints'] { value.str() } else { '' }
+		token:        if value := assertion['token'] { value.str() } else { '' }
 		domain:       if value := idp['domain'] { value.str() } else { '' }
 		protocol:     if value := idp['protocol'] { value.str() } else { '' }
 	}
 	if !data.valid() {
-		return none
+		return error('carries a malformed identity assertion')
 	}
 	return data
 }

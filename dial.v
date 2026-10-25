@@ -219,10 +219,12 @@ fn apply_answer(mut conn Conn, sdp_text string, config DialConfig) ! {
 	if identity := extract_identity(sdp_text) {
 		conn.public_key = verify_server_identity(identity, sdp_text)!
 		conn.remote_domain = identity.domain
-	} else if !config.allow_identityless_server {
+	} else {
 		// Without an assertion nothing ties the answer to a known server, so
 		// whoever intercepted the offer could have answered it.
-		return error('nethernet: the answer carries no identity assertion')
+		if err !is NoIdentity || !config.allow_identityless_server {
+			return error('nethernet: the answer ${err.msg()}')
+		}
 	}
 
 	conn.pc.set_remote_description(webrtc.SessionDescription{

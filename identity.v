@@ -32,8 +32,8 @@ pub mut:
 	fingerprints string
 	// token is the identity token the assertion is made under.
 	token string
-	// domain is the identity provider that issued the token: an authorization
-	// service URL for a client, "self" or a hostname for a server.
+	// domain is the identity provider that issued the token: "self" or a
+	// hostname for a server.
 	domain string
 	// protocol is always "default" for NetherNet.
 	protocol string = 'default'
@@ -43,7 +43,6 @@ pub mut:
 // whether the signature checks out.
 pub fn (d &IdentityData) valid() bool {
 	return is_compact_jws(d.token) && is_compact_jws(d.fingerprints) && d.protocol == 'default'
-		&& d.domain != ''
 }
 
 fn is_compact_jws(text string) bool {

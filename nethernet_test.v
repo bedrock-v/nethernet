@@ -308,6 +308,36 @@ fn test_identity_assertion_accepts_a_nested_assertion() {
 	assert read.valid()
 }
 
+// 26.50 client names no identity provider domain.
+fn test_identity_assertion_with_an_empty_domain_is_read() {
+	private_key := ecdsa.PrivateKey.new(nid: .secp384r1)!
+	identity := generate_server_identity(private_key, 'self')!
+	data := identity.sign(sample_sdp)!
+
+	inner := '{"fingerprints":${json_string(data.fingerprints)},"token":${json_string(data.token)}}'
+	encoded := base64.encode('{"assertion":${json_string(inner)},"idp":{"domain":"","protocol":"default"}}'.bytes())
+	read := extract_identity('${sample_sdp}a=identity:${encoded}\r\n') or {
+		assert false, 'an assertion with an empty domain was not read: ${err}'
+		return
+	}
+	assert read.token == data.token
+	assert read.domain == ''
+}
+
+fn test_an_unreadable_id_assertion_is_not_mistaken_for_none() {
+	if _ := extract_identity(sample_sdp) {
+		assert false, 'a description without an assertion yielded one'
+	} else {
+		assert err is NoIdentity
+	}
+	broken := base64.encode('{"assertion":"{}","idp":{"protocol":"default"}}'.bytes())
+	if _ := extract_identity('${sample_sdp}a=identity:${broken}\r\n') {
+		assert false, 'a malformed assertion was read'
+	} else {
+		assert err !is NoIdentity
+	}
+}
+
 // SilentSignaling is a signalling channel nobody ever offers anything on.
 struct SilentSignaling {}
 

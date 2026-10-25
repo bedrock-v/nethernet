@@ -466,10 +466,10 @@ fn (mut n Negotiation) adopt_channels(mut conn Conn, deadline time.Time) ! {
 // has to establish who the peer is some other way.
 fn (mut n Negotiation) verify_client(mut conn Conn, sdp_text string) ! {
 	identity := extract_identity(sdp_text) or {
-		if n.listener.config.allow_anonymous {
+		if err is NoIdentity && n.listener.config.allow_anonymous {
 			return
 		}
-		return error('nethernet: the offer carries no identity assertion')
+		return error('nethernet: the offer ${err.msg()}')
 	}
 	if mut verifier := n.listener.token_verifier {
 		verifier.verify_token(identity.token) or {
