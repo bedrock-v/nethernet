@@ -220,6 +220,17 @@ fn (mut c Conn) accept_segment(reliability MessageReliability, data []u8) !([]u8
 	return payload, true
 }
 
+// buffered_amount is how many bytes written to the connection have not gone out
+// yet, on both channels.
+pub fn (mut c Conn) buffered_amount() u64 {
+	mut total := u64(0)
+	for reliability in [MessageReliability.reliable, .unreliable] {
+		mut channel := c.channel(reliability) or { continue }
+		total += channel.buffered_amount()
+	}
+	return total
+}
+
 // write sends b over the reliable channel.
 pub fn (mut c Conn) write(b []u8) !int {
 	return c.send(b, .reliable)
